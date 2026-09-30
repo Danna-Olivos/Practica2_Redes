@@ -1,0 +1,69 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <linux/if_packet.h>
+#include <net/if.h>
+#include <net/ethernet.h>
+#include <arpa/inet.h>
+#include <string.h>
+#include <unistd.h>
+#include <time.h>
+
+int main(void) {
+    srand(time(NULL));  
+    //Creamos el socket, 
+    //htons(Host to Network Short) convierte el orden de los bytes 
+    //del formato de la computadora al estándar de la red
+    int socket_emisor = socket(AF_PACKET, SOCK_RAW, htons(0x88B5)); 
+  
+    //para transmitir la informacion 
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr)); //para evitar basura en memoria
+    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ - 1);
+    
+    //obtener índice de la interfaz de red 
+    ioctl(socket_emisor, SIOCGIFINDEX, &ifr);
+    int ifindex = ifr.ifr_ifindex;
+
+    //obtener MAC de la interfaz de red
+    ioctl(socket_emisor, SIOCGIFHWADDR, &ifr);
+    unsigned char mac_origen[6];
+
+
+    memcpy(mac_origen, ifr.ifr_hwaddr.sa_data, 6);
+    unsigned char mac_destino[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+    const char *payload = "Holi crayoli :)";
+    size_t payload_len = strlen(payload);
+
+    unsigned char trama_Ethernet[14 + 1500];
+    size_t offset = 0;
+    //Copiamos la MAC de destino
+    memmove(trama_Ethernet + offset, mac_destino, 6);
+    offset += 6;
+    //Copiamos la MAC de origen
+    memmove(trama_Ethernet + offset, mac_origen, 6);
+    offset += 6;
+
+    uint16_t ethertype = htons(0x88B5);
+    memmove(trama_Ethernet + offset, &ethertype, 2);
+    offset += 2;
+
+    memmove(trama_Ethernet + offset, payload, payload_len);
+    offset += payload_len;
+
+    // Enviamos el mensaje
+    struct sockaddr_ll sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sll_family   = AF_PACKET;
+    sa.sll_ifindex  = ifindex;
+    sa.sll_halen    = 6;
+    memcpy(sa.sll_addr, mac_destino, 6);
+
+    sendto(socket_emisor, trama_Ethernet, offset, 0,(struct sockaddr*)&sa, sizeof(sa));
+
+    printf("Trama enviada (%zu bytes)\n", offset);
+    close(socket_emisor);
+    return 0;
+}
